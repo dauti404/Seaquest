@@ -14,7 +14,7 @@ Para executar o jogo:
 ```
 ~/local_onde_tá_salvo_o_jogo$ ./bin/main
 ```
-**Obs.:**Caso queira testar o jogo com WINE para rodar o arquivo .exe, primeria limpa a pasta do jogo com:
+Obs.:Caso queira testar o jogo com WINE para rodar o arquivo .exe, primeria limpa a pasta do jogo com:
 ```
 ~/local_onde_tá_salvo_o_jogo$ make clean
 ```
