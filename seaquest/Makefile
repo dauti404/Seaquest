@@ -3,16 +3,20 @@ TARGET = main
 # --- COMPILAÇÃO MULTIPLATAFORMA ---
 # compila de acordo com o sistema operacional
 ifdef windows
+	# compila código WINDOWS
     # Windows 32-bits
     #CC = i686-w64-mingw32-gcc
     # Windows 64-bits
     CC = x86_64-w64-mingw32-gcc
     EXT = .exe
     C_STANDARD = -std=c2x
+    LIBS =
 else
+	# compila código LINUX
     CC = gcc
-    EXT = 
+    EXT =
     C_STANDARD = -std=c23
+    LIBS = -lncurses
 endif
 
 # Define o compilador e flags para retorno de erros
@@ -35,10 +39,10 @@ APP_OBJ_FILES = $(patsubst $(APP_DIR)/%.c, $(OBJ_DIR)/apps/%.o, $(APP_FILES))
 # Lê os binários (se precisar executar os códigos de forma individual, trocar TARGET por PROGS)
 # adicionado a extensão dinâmica .exe se for Windows
 all: $(TARGET)$(EXT)
-	
+
 # Linkagem: junta todos os objetos em um arquivo executável
 $(TARGET)$(EXT): $(OBJ_FILES) $(APP_OBJ_FILES)
-	$(CC) $(CFLAGS) -o $@ $^
+	$(CC) $(CFLAGS) -o $@ $^ $(LIBS)
 
 # compila os arquivos na pasta src/
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.c | $(OBJ_DIR)
