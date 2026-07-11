@@ -1,27 +1,45 @@
-#include <stdio.h>
+// Ativa os recursos padrão do POSIX para o uso do usleep no Linux
+#define _DEFAULT_SOURCE
+
+//#include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
-#include <unistd.h>
-#include <ncurses.h>
+//#include <unistd.h>
+//#include <ncurses.h>
 
-// difinições do jogo
+// Defininções de SO
+#if defined(_WIN32) || defined(__WIN32__)
+    #include <curses.h>   // No Windows
+    #include <windows.h>  // Necessário para a função Sleep do Windows para o jogo funcionar
+    #define ESPERAR_MS(ms) Sleep(ms)
+#else
+    #include <ncurses.h>  // No Linux
+    #include <unistd.h>   // Necessário para o usleep do Linux
+    #define ESPERAR_MS(ms) usleep((ms) * 1000) // Converte milissegundos para microsegundos
+#endif
+
+// difinições da tela do jogo
 #define ALTURA 30
 #define LARGURA 100
 
 // Entidades
 typedef struct{
 	int x, y;
-} PLAYER;
+} Player;
 
 typedef struct{
 	int x, y;
 	int ativo;
-} INIMIGO;
+	// muda a direção de spawn da entidade
+	int direcao;
+} Inimigo;
 
 typedef struct{
 	int x, y;
 	int ativo;
-} MERGULHADOR;
+	// muda a direção de spawn da entidade
+	//int direcao;
+} Mergulador;
 
 // Prototipos das funções 
 void desenhar_borda();
@@ -77,6 +95,10 @@ void menu(){
                 op = 1;
                 break;
             case 10: // Tecla Enter
+            // a tecla Enter é capturado com código 13 no Windows/PDCurses (CR)
+            #if defined(_WIN32)
+                case 13:
+            #endif
                 conjunto_op = 1;
                 break;
         }
@@ -103,7 +125,7 @@ void desenhar_borda() {
 			// Coluna preenchidas com o caracter desejado
 			i, 
 			// Caracter ACSII
-			'&');
+			'#');
 		// Linha final
         mvaddch(
 			// Valor da altura
@@ -111,7 +133,7 @@ void desenhar_borda() {
 			// Linha final de caracteres
 			i, 
 			// Caracter desejado ACSII
-			'&');
+			'#');
     }
 	// Altura da tela
     for (int i = 0; i <= ALTURA; i++) {
@@ -124,10 +146,12 @@ void desenhar_borda() {
 void game() {
     // Configura o getch para não travar o jogo esperando input
     nodelay(stdscr, TRUE);
-    
-    PLAYER submarino = {10, ALTURA / 2};
-    INIMIGO tubarao = {LARGURA - 4, 8, 1};
-    MERGULHADOR humano = {LARGURA - 2, 14, 1};
+
+    // o LARGURA - 4, garante uma folga no tela para evitar desenhar fora da tela as entidades
+    // as entidades tem um limite de 4 caracteres para o tamanho
+    Player submarino = {10, ALTURA / 2};
+    Inimigo tubarao = {LARGURA - 4, 8, 1, -1};
+    Mergulador humano = {LARGURA - 2, 14, 1};
     
     int pontuacao = 0;
     int mergulhadores_salvos = 0;
@@ -140,7 +164,37 @@ void game() {
         desenhar_borda();
         
         // Interface de Status
-        mvprintw(0, 2, " Pontos: %d | Mergulhadores: %d | Oxigenio: %d%% ", pontuacao, mergulhadores_salvos, oxigenio);
+        //mvprintw(0, 2, " Pontos: %d | Mergulhadores: %d | Oxigenio: %d%% ", pontuacao, mergulhadores_salvos, oxigenio);
+        mvprintw(0, 25, "Pontos: %d | Mergulhadores: %d | Oxigenio: ", pontuacao, mergulhadores_salvos);
+                
+        // Define a cor com base no nível de oxigênio
+        int par_cor = 1; // Verde padrão
+        if (oxigenio <= 20) {
+            par_cor = 3; // Vermelho crítico
+        } else if (oxigenio <= 50) {
+            par_cor = 2; // Amarelo alerta
+        }
+
+        // Ativa a cor escolhida
+        attron(COLOR_PAIR(par_cor));
+
+        // Desenha a barra visual (com tamanho máximo de 10 caracteres)
+        // Cada caractere 'X' ou '#' representa 10% de oxigênio
+        int tamanho_barra = oxigenio / 10;
+        mvprintw(0, 65, "[");
+        for (int b = 0; b < 10; b++) {
+            if (b < tamanho_barra) {
+                printw("#"); // Parte cheia da barra (pode usar 'X' ou 'O' se preferir)
+            } else {
+                printw(" "); // Parte vazia da barra
+            }
+        }
+        printw("] %d%%", oxigenio);
+
+        // Desativa a cor para não pintar o resto do jogo
+        attroff(COLOR_PAIR(par_cor));
+        // bloco de definição da barra de oxigênio
+        
         // Linha da superfície da água
         mvprintw(3, 1, "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
 
@@ -149,19 +203,40 @@ void game() {
 
         // Movimenta e Desenha o Tubarão
         if (tubarao.ativo) {
-            mvprintw(tubarao.y, tubarao.x, "<><");
-            if (loop_count % 2 == 0) { // Controla a velocidade do tubarão
-                tubarao.x--;
+            // sprite do tubarão
+            // defini qual tubarão vai ser spawnado
+            if(tubarao.direcao == -1){
+                mvprintw(tubarao.y, tubarao.x, "<><"); // da direita para esquerda
+            } else {
+                mvprintw(tubarao.y, tubarao.x, "><>"); // da esquerda para direita
             }
-            if (tubarao.x <= 1) {
-                tubarao.x = LARGURA - 4;
-                tubarao.y = (rand() % (ALTURA - 6)) + 4; // Spawna em altura aleatória abaixo da água
+            // Velocidade do tubarão
+            if (loop_count % 2 == 0) { 
+                // muda a direção que ele tá andando automaticamente
+                tubarao.x += tubarao.direcao;
             }
-        }
+            // verifica a direção do tubarão
+            if(tubarao.x <= 1 || tubarao.x >= LARGURA - 4){
+                // sorteia a sua direção
+                // moeda aleátoria que o jogo tira quando o tubarão sai de tela
+                tubarao.direcao = (rand() % 2 == 0) ? -1 : 1;
+                // reposiciona o tubarão na tela
+                if(tubarao.direcao == -1){
+                    // spawna na direita
+                    tubarao.x = LARGURA - 4;
+                } else {
+                    // spawna na esquerda
+                    tubarao.x = 2;
+                }
+                // altura aleatória do tubarão
+                tubarao.y = (rand() % (ALTURA - 6)) + 4;
+            }
+        } // fim do bloco de código do tubarão
 
         // Movimenta e Desenha o Mergulhador
         if (humano.ativo) {
-            mvprintw(humano.y, humano.x, "o");
+            // sprite do mergulhador
+            mvprintw(humano.y, humano.x, "oOo");
             if (loop_count % 3 == 0) {
                 humano.x--;
             }
@@ -193,7 +268,8 @@ void game() {
                 pontuacao += mergulhadores_salvos * 200;
                 mergulhadores_salvos = 0;
             }
-            if (oxigenio < 100) oxigenio += 5;
+            // preenche o oxigênio
+            if (oxigenio < 100) oxigenio += 1;
         } else {
             // Consumo de oxigênio abaixo da água
             if (loop_count % 10 == 0) oxigenio--;
@@ -235,7 +311,12 @@ void game() {
     nodelay(stdscr, FALSE);
     clear();
     desenhar_borda();
-    mvprintw(ALTURA / 2 - 1, (LARGURA / 2) - 5, "GAME OVER");
+    // definições
+    mvprintw(
+        // Eixo Y
+        ALTURA / 2 - 1, 
+        // Eixo X centralizado (metade do tamanho da string)
+        (LARGURA / 2) - 5, "GAME OVER");
     mvprintw(ALTURA / 2 + 1, (LARGURA / 2) - 9, "Pontuacao Final: %d", pontuacao);
     mvprintw(ALTURA / 2 + 3, (LARGURA / 2) - 14, "Pressione qualquer tecla");
     refresh();
@@ -255,6 +336,18 @@ int main(){
 	curs_set(0); // Esconde o cursor do terminal
 	srand(time(NULL));
 
+	// bloco de código para as cores
+	if (has_colors()) {
+        start_color();
+        // Par 1: Verde para Oxigênio Alto (acima de 50%)
+        init_pair(1, COLOR_GREEN, COLOR_BLACK);
+        // Par 2: Amarelo para Oxigênio Médio (entre 21% e 50%)
+        init_pair(2, COLOR_YELLOW, COLOR_BLACK);
+        // Par 3: Vermelho para Oxigênio Crítico (20% ou menos)
+        init_pair(3, COLOR_RED, COLOR_BLACK);
+    } // fim do bloco de código
+
+	// menu do jogo
 	menu();
 	// Finalização
 	endwin();
