@@ -24,13 +24,17 @@
 
 // Entidades
 typedef struct{
+    // variáveis para guarda as coordenadas cartesianas do Jogador
+    // em jogos 2d e de terminal, as coordenadas cartesianas são invertidas em relação a da matemática tradicional, mas funcionam de formas semelhantes
+    // o x guarda a posição horizontal do jogador. x + 1 = move para direita e x - 1 = move para esquerda
+    // o y guarda a posição vertical do jogador. y + 1 = move para baixo e y - 1 = move para cima
 	int x, y;
 } Player;
 
 typedef struct{
 	int x, y;
 	int ativo;
-	// muda a direção de spawn da entidade
+	// muda a direção de spawn da entidade. Variável para guarda da posição do jogador
 	int direcao;
 } Inimigo;
 
@@ -38,7 +42,7 @@ typedef struct{
 	int x, y;
 	int ativo;
 	// muda a direção de spawn da entidade
-	//int direcao;
+	int direcao;
 } Mergulador;
 
 // Prototipos das funções 
@@ -149,10 +153,14 @@ void game() {
 
     // o LARGURA - 4, garante uma folga no tela para evitar desenhar fora da tela as entidades
     // as entidades tem um limite de 4 caracteres para o tamanho
-    Player submarino = {10, ALTURA / 2};
-    Inimigo tubarao = {LARGURA - 4, 8, 1, -1};
-    Mergulador humano = {LARGURA - 2, 14, 1};
-    
+     
+    // essas linhas são inicializadores dos structs definidos das entidades
+    Player submarino = {10, ALTURA / 2}; // posição inicial do jogador. Eixo X e Eixo Y respectivamente
+    Inimigo tubarao = {LARGURA - 4, 8, 1, -1}; // posição inicial X e Y, o (1) velocidade/direção para a direita e o (-1) altura no eixo Y.
+    Mergulador humano = {2, 14, 1, 1}; // posição inicial X e Y, o (1) velocidade/direção para direita e o (1) direção no eixo y para baixo
+    Inimigo sub_enemy = {LARGURA - 2, 5, 1, -1};
+
+    // variáveis do jogo
     int pontuacao = 0;
     int mergulhadores_salvos = 0;
     int oxigenio = 100;
@@ -211,6 +219,9 @@ void game() {
                 mvprintw(tubarao.y, tubarao.x, "><>"); // da esquerda para direita
             }
             // Velocidade do tubarão
+            // loop de movimentação do personagem, a variável conta os frames do jogo e divide por 2
+            // se o resto da divisão for diferente de 0, o personagem fica parado
+            // se o resto da divisão for igual a 0, o personagem dá um 1 passo
             if (loop_count % 2 == 0) { 
                 // muda a direção que ele tá andando automaticamente
                 tubarao.x += tubarao.direcao;
@@ -233,27 +244,74 @@ void game() {
             }
         } // fim do bloco de código do tubarão
 
-        // Movimenta e Desenha o Mergulhador
+        // Cria o submarino inimigo
+        if (sub_enemy.ativo) {
+            // sprite do submarino inimigo
+            // defini qual submarino inimigo vai ser spawnado
+            if(sub_enemy.direcao == -1){
+                mvprintw(sub_enemy.y, sub_enemy.x, "=0+"); // da direita para esquerda
+            } else {
+                mvprintw(sub_enemy.y, sub_enemy.x, "+0="); // da esquerda para direita
+            }
+            // Velocidade do submarino inimigo
+            // loop de movimentação do personagem, a variável conta os frames do jogo e divide por 2
+            // se o resto da divisão for diferente de 0, o personagem fica parado
+            // se o resto da divisão for igual a 0, o personagem dá um 1 passo
+            if (loop_count % 3 == 0) { 
+                // muda a direção que ele tá andando automaticamente
+                sub_enemy.x += sub_enemy.direcao;
+            }
+            // verifica a direção do submarino inimigo
+            if(sub_enemy.x <= 1 || sub_enemy.x >= LARGURA - 4){
+                // sorteia a sua direção
+                // moeda aleátoria que o jogo tira quando o tubarão sai de tela
+                sub_enemy.direcao = (rand() % 2 == 0) ? -1 : 1;
+                // reposiciona o submarino inimigo na tela
+                if(sub_enemy.direcao == -1){
+                    // spawna na direita
+                    sub_enemy.x = LARGURA - 4;
+                } else {
+                    // spawna na esquerda
+                    sub_enemy.x = 2;
+                }
+                // altura aleatória do submarino inimigo
+                sub_enemy.y = (rand() % (ALTURA - 6)) + 4;
+            }
+        } // fim do bloco de código do submarino inimigo
+    
+        // Movimenta e Desenha o Mergulhador humano
         if (humano.ativo) {
             // sprite do mergulhador
             mvprintw(humano.y, humano.x, "oOo");
-            if (loop_count % 3 == 0) {
-                humano.x--;
+            // loop de movimentação do personagem, a variável conta os frames do jogo e divide por 3
+            // se o resto da divisão for diferente de 0, o personagem fica parado
+            // se o resto da divisão for igual a 0, o personagem dá um 1 passo
+            if (loop_count % 3 == 0) { 
+                humano.x += humano.direcao;
             }
-            if (humano.x <= 1) {
-                humano.x = LARGURA - 2;
-                humano.y = (rand() % (ALTURA - 6)) + 4;
+            // verifica se ele já saiu da tela
+            if (humano.x <= 1 || humano.x >= LARGURA - 2) {
+                // moeda de troca
+                // sorteia a posição que o mergulhador irá surgi na tela
+                humano.direcao = (rand() % 2 == 0) ? -1 : 1;
+                // reposiciona o humano na tela
+                if(humano.direcao == -1){
+                    humano.x = LARGURA - 2; // spawna na direita
+                } else{
+                  humano.x = 2; // spawna na esquerda  
+                }
+                humano.y = (rand() % (ALTURA - 6)) + 4; // determina o spawn aleátorio do humano
             }
-        }
+        } // fim do bloco de código do humano
 
-        // --- SISTEMA DE COLISÕES ---
-        
+        // Sistema de colisão com base no tamanho dos sprites das entidades
         // Submarino pega mergulhador
-        if (humano.ativo && submarino.y == humano.y && (submarino.x <= humano.x && submarino.x + 2 >= humano.x)) {
+        if (humano.ativo && submarino.y == humano.y && (submarino.x + 2 >= humano.x && submarino.x <= humano.x + 2)) {
             mergulhadores_salvos++;
             pontuacao += 100;
-            // Respawna o mergulhador
-            humano.x = LARGURA - 2;
+            // Respawna o mergulhador em um lugar aleatório
+            humano.direcao = (rand() % 2 ==0) ? -1 : 1;
+            humano.x = (humano.direcao == -1) ? LARGURA -2 : 2;
             humano.y = (rand() % (ALTURA - 6)) + 4;
         }
 
@@ -261,6 +319,11 @@ void game() {
         if (tubarao.ativo && submarino.y == tubarao.y && (submarino.x + 2 >= tubarao.x && submarino.x <= tubarao.x + 2)) {
             game_over = 1;
         }
+
+        if (sub_enemy.ativo && submarino.y == sub_enemy.y && (submarino.x + 2 >= sub_enemy.x && submarino.x <= sub_enemy.x + 2)) {
+            game_over = 1;
+        }
+        // fim do sistema de colisão 
 
         // Submarino volta à superfície
         if (submarino.y <= 3) {
@@ -273,7 +336,7 @@ void game() {
         } else {
             // Consumo de oxigênio abaixo da água
             if (loop_count % 10 == 0) oxigenio--;
-        }
+        }       
 
         if (oxigenio <= 0) game_over = 1;
 
@@ -286,7 +349,7 @@ void game() {
         napms(50); // Ritmo do jogo (50ms)
         loop_count++;
 
-        // --- CONTROLES ---
+        // Controles
         int ch = getch();
         switch (ch) {
             case KEY_UP:
@@ -301,7 +364,7 @@ void game() {
             case KEY_RIGHT:
                 if (submarino.x < LARGURA - 4) submarino.x++;
                 break;
-            case 'q': // Atalho para sair voluntariamente
+            case 'q': // Tecla para sair 
                 game_over = 1;
                 break;
         }
@@ -325,16 +388,12 @@ void game() {
 
 // Função principal main
 int main(){
-	// Iniciar a tela
-	initscr();
-	// 
-	cbreak();
-	// Não imprime as teclas digitadas pelo usuário
-	noecho();
-	// Ativa as teclas
-	keypad(stdscr, TRUE);
+	initscr(); // Iniciar a tela
+	cbreak(); // ativa o modo (quebra de linha)
+	noecho(); // Não imprime as teclas digitadas pelo usuário
+	keypad(stdscr, TRUE); // Ativa as teclas
 	curs_set(0); // Esconde o cursor do terminal
-	srand(time(NULL));
+	srand(time(NULL)); // faz os números gerados aleatoriamente sejam sempre diferentes
 
 	// bloco de código para as cores
 	if (has_colors()) {
@@ -346,11 +405,8 @@ int main(){
         // Par 3: Vermelho para Oxigênio Crítico (20% ou menos)
         init_pair(3, COLOR_RED, COLOR_BLACK);
     } // fim do bloco de código
-
-	// menu do jogo
-	menu();
-	// Finalização
-	endwin();
-
+	
+	menu(); // abre o menu do jogo
+	endwin(); // fecha a tela do jogo
 	return 0;
 } // fim da função principal
