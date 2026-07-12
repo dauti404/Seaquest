@@ -1,11 +1,8 @@
 // Ativa os recursos padrão do POSIX para o uso do usleep no Linux
 #define _DEFAULT_SOURCE
-
-//#include <stdio.h>
+// bibliotecas gerais
 #include <stdlib.h>
 #include <time.h>
-//#include <unistd.h>
-//#include <ncurses.h>
 
 // Defininções de SO
 #if defined(_WIN32) || defined(__WIN32__)

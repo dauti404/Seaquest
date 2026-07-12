@@ -10,17 +10,19 @@ ifdef windows
     CC = x86_64-w64-mingw32-gcc
     EXT = .exe
     C_STANDARD = -std=c2x
-    LIBS =
+    LIBS = -L lib -lpdcurses
+    INCLUDES = -I include_win -I include
 else
 	# compila código LINUX
     CC = gcc
     EXT =
     C_STANDARD = -std=c23
     LIBS = -lncurses
+    INCLUDES = -I include
 endif
 
 # Define o compilador e flags para retorno de erros
-CFLAGS = $(C_STANDARD) -Wall -Wextra -g -I include
+CFLAGS = $(C_STANDARD) -Wall -Wextra -g $(INCLUDES)
 
 # Diretórios
 SRC_DIR = src
