@@ -1,134 +1,216 @@
+/*
+ * SEAQUEST - versao portatil (SEM ncurses, SEM PDCurses)
+ *
+ * Usa o mesmo truque do flappy-ascii.c do professor: no Windows usa
+ * windows.h/conio.h (que ja vem com qualquer instalacao MinGW), no
+ * Linux usa termios.h/unistd.h (que ja vem com qualquer gcc). Nao
+ * precisa instalar nenhuma biblioteca extra em nenhum dos dois SOs.
+ *
+ * Desenho: em vez de mvprintw/refresh do curses, montamos a tela
+ * inteira numa string e mandamos tudo de uma vez com fputs - isso
+ * evita o efeito de "piscar" sem precisar de nenhum buffer especial
+ * do Windows.
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
-#include <unistd.h>
-#include <ncurses.h>
 
-// difinições do jogo
-#define ALTURA 30
-#define LARGURA 100
+#ifdef _WIN32
+    #include <windows.h>
+    #include <conio.h>
+#else
+    #include <unistd.h>
+    #include <termios.h>
+#endif
 
-// Entidades
-typedef struct{
-	int x, y;
-} PLAYER;
+/* ------------------------------- Configuracao ---------------------------- */
 
-typedef struct{
-	int x, y;
-	int ativo;
-} INIMIGO;
+#define ALTURA   30
+#define LARGURA  100
+#define DELAY_MS 50
 
-typedef struct{
-	int x, y;
-	int ativo;
-} MERGULHADOR;
+/* codigos de tecla normalizados (iguais nos dois SOs) */
+#define TECLA_CIMA      1000
+#define TECLA_BAIXO     1001
+#define TECLA_ESQUERDA  1002
+#define TECLA_DIREITA   1003
+#define TECLA_ENTER     1004
 
-// Prototipos das funções 
-void desenhar_borda();
-void menu();
-void game();
+/* --------------------------------- Entidades ------------------------------ */
 
-// Função do MENU
-void menu(){
-	// Variáveis de escolhas
-	int op = 0, conjunto_op = 0;
+typedef struct { int x, y; } PLAYER;
+typedef struct { int x, y; int ativo; } INIMIGO;
+typedef struct { int x, y; int ativo; } MERGULHADOR;
 
-	while(1){
-		clear();
-		desenhar_borda();
+/* ---------------------- Camada portatil (terminal / teclado) -------------- */
 
-		// Definir o Título do Jogo
-		mvprintw(
-			// Mantém centralizado os caracteres na tela
-			ALTURA / 
-			// o primeiro move de forma agressiva os caracteres
-			3 
-			// o segundo move de forma suave os caraceters
-			- 8, (LARGURA / 2) - 5, "SEAQUEST");
+#ifdef _WIN32
 
-		 // Opções do Menu
-		if (op == 0) {
-            attron(A_REVERSE); // Destaca a opção selecionada
-			// Opção start
-            mvprintw(ALTURA / 2 - 1, (LARGURA / 2) - 4, " START ");
-            attroff(A_REVERSE); // Destacamento da escolha
-			// opção quit
-            mvprintw(ALTURA / 2 + 1, (LARGURA / 2) - 4, "  QUIT  ");
-        } else {
-			// Faz o inverso das funções acima
-            mvprintw(ALTURA / 2 - 1, (LARGURA / 2) - 4, "  START  ");
-            attron(A_REVERSE);
-            mvprintw(ALTURA / 2 + 1, (LARGURA / 2) - 4, "  QUIT  ");
-            attroff(A_REVERSE);
+void restaurar_terminal(void) { printf("\033[?25h\033[0m"); fflush(stdout); }
+
+void preparar_terminal(void) {
+    HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE);
+    DWORD modo = 0;
+    GetConsoleMode(h, &modo);
+    SetConsoleMode(h, modo | 0x0004); /* ENABLE_VIRTUAL_TERMINAL_PROCESSING: liga os codigos ANSI no cmd */
+    printf("\033[2J\033[?25l");
+    atexit(restaurar_terminal);
+}
+
+int ler_tecla(void) {
+    if (!_kbhit()) return -1;
+    int c = _getch();
+    if (c == 0 || c == 224) {
+        int c2 = _getch();
+        switch (c2) {
+            case 72: return TECLA_CIMA;
+            case 80: return TECLA_BAIXO;
+            case 75: return TECLA_ESQUERDA;
+            case 77: return TECLA_DIREITA;
         }
+        return -1;
+    }
+    if (c == '\r') return TECLA_ENTER;
+    return c;
+}
 
-		// Legenda de ajuda para o usuário
-		mvprintw(ALTURA / 2 + 8, (LARGURA / 2) - 10, "Use as Setas e Enter");
-        refresh();
-        
-		// Variável que guarda a tecla do usuário
-        int c = getch();
-		// Casos para uso de teclas pelo usuário
-        switch (c) {
-            case KEY_UP: // seta para cima
-                op = 0;
-                break;
-            case KEY_DOWN: // seta para baixo
-                op = 1;
-                break;
-            case 10: // Tecla Enter
-                conjunto_op = 1;
-                break;
-        }
-        
-        if (conjunto_op) { // início do IF
-            if (op == 0) {
-                game(); // Inicia o jogo
-                conjunto_op = 0; // Volta para o menu se o jogo acabar
-            } else {
-                break; // Sai do loop e fecha o programa
+void dormir(int ms) { Sleep(ms); }
+
+#else /* Linux / macOS */
+
+static struct termios termo_original;
+
+void restaurar_terminal(void) {
+    tcsetattr(STDIN_FILENO, TCSANOW, &termo_original);
+    printf("\033[?25h\033[0m");
+    fflush(stdout);
+}
+
+void preparar_terminal(void) {
+    tcgetattr(STDIN_FILENO, &termo_original);
+    struct termios cru = termo_original;
+    cru.c_lflag &= ~(ICANON | ECHO);
+    cru.c_cc[VMIN]  = 0;
+    cru.c_cc[VTIME] = 0;
+    tcsetattr(STDIN_FILENO, TCSANOW, &cru);
+    printf("\033[2J\033[?25l");
+    atexit(restaurar_terminal);
+}
+
+int ler_tecla(void) {
+    unsigned char c;
+    if (read(STDIN_FILENO, &c, 1) != 1) return -1;
+
+    if (c == 27) { /* possivel seta: ESC [ letra */
+        unsigned char c2, c3;
+        if (read(STDIN_FILENO, &c2, 1) != 1) return -1;
+        if (read(STDIN_FILENO, &c3, 1) != 1) return -1;
+        if (c2 == '[') {
+            switch (c3) {
+                case 'A': return TECLA_CIMA;
+                case 'B': return TECLA_BAIXO;
+                case 'D': return TECLA_ESQUERDA;
+                case 'C': return TECLA_DIREITA;
             }
-        } // fim do IF
+        }
+        return -1;
+    }
+    if (c == '\n') return TECLA_ENTER;
+    return c;
+}
 
-	} // fim do WHILE
-} // fim da função do MENU
+void dormir(int ms) { usleep(ms * 1000); }
 
-// desenha a borda da tela
-void desenhar_borda() {
-	// Largura da tela
+#endif
+
+/* ----------------------- Helpers de desenho (ANSI puro) -------------------- */
+
+/* buffer onde a tela inteira e montada antes de imprimir de uma vez so */
+static char tela_buf[ALTURA + 5][LARGURA + 40];
+
+void limpa_buffer(void) {
+    for (int y = 0; y < ALTURA + 2; y++)
+        memset(tela_buf[y], ' ', LARGURA + 1), tela_buf[y][LARGURA + 1] = '\0';
+}
+
+/* escreve uma string na posicao (lin, col) do buffer, sem estourar a linha */
+void escreve(int lin, int col, const char *texto) {
+    if (lin < 0 || lin >= ALTURA + 2) return;
+    int len = (int) strlen(texto);
+    for (int i = 0; i < len; i++) {
+        int c = col + i;
+        if (c < 0 || c >= LARGURA + 1) continue;
+        tela_buf[lin][c] = texto[i];
+    }
+}
+
+void escreve_char(int lin, int col, char ch) {
+    if (lin < 0 || lin >= ALTURA + 2 || col < 0 || col >= LARGURA + 1) return;
+    tela_buf[lin][col] = ch;
+}
+
+/* manda o buffer inteiro pra tela de uma vez (cursor no topo, sem clear) */
+void mostra_buffer(void) {
+    printf("\033[H");
+    for (int y = 0; y < ALTURA + 2; y++)
+        printf("%s\n", tela_buf[y]);
+    fflush(stdout);
+}
+
+/* -------------------------------- Jogo -------------------------------- */
+
+void desenhar_borda(void) {
     for (int i = 0; i <= LARGURA; i++) {
-        mvaddch(
-			// Linha inicial
-			0, 
-			// Coluna preenchidas com o caracter desejado
-			i, 
-			// Caracter ACSII
-			'&');
-		// Linha final
-        mvaddch(
-			// Valor da altura
-			ALTURA, 
-			// Linha final de caracteres
-			i, 
-			// Caracter desejado ACSII
-			'&');
+        escreve_char(0, i, '&');
+        escreve_char(ALTURA, i, '&');
     }
-	// Altura da tela
     for (int i = 0; i <= ALTURA; i++) {
-        mvaddch(i, 0, '#');
-        mvaddch(i, LARGURA, '#');
+        escreve_char(i, 0, '#');
+        escreve_char(i, LARGURA, '#');
     }
-} // fim da função que desenha a borda
+}
 
-// função que faz o jogo funcionar
-void game() {
-    // Configura o getch para não travar o jogo esperando input
-    nodelay(stdscr, TRUE);
-    
-    PLAYER submarino = {10, ALTURA / 2};
-    INIMIGO tubarao = {LARGURA - 4, 8, 1};
-    MERGULHADOR humano = {LARGURA - 2, 14, 1};
-    
+void menu(void) {
+    int op = 0, confirmou = 0;
+
+    while (1) {
+        limpa_buffer();
+        desenhar_borda();
+
+        escreve(ALTURA / 3 - 8, (LARGURA / 2) - 4, "SEAQUEST");
+
+        if (op == 0) {
+            escreve(ALTURA / 2 - 1, (LARGURA / 2) - 4, "[ START ]");
+            escreve(ALTURA / 2 + 1, (LARGURA / 2) - 4, "  QUIT   ");
+        } else {
+            escreve(ALTURA / 2 - 1, (LARGURA / 2) - 4, "  START  ");
+            escreve(ALTURA / 2 + 1, (LARGURA / 2) - 4, "[ QUIT ]");
+        }
+
+        escreve(ALTURA / 2 + 8, (LARGURA / 2) - 10, "Use as Setas e Enter");
+        mostra_buffer();
+
+        int c;
+        while ((c = ler_tecla()) == -1) dormir(20); /* espera alguma tecla */
+
+        if (c == TECLA_CIMA)   op = 0;
+        if (c == TECLA_BAIXO)  op = 1;
+        if (c == TECLA_ENTER)  confirmou = 1;
+
+        if (confirmou) {
+            if (op == 0) { extern void game(void); game(); confirmou = 0; }
+            else break;
+        }
+    }
+}
+
+void game(void) {
+    PLAYER submarino = { 10, ALTURA / 2 };
+    INIMIGO tubarao = { LARGURA - 4, 8, 1 };
+    MERGULHADOR humano = { LARGURA - 2, 14, 1 };
+
     int pontuacao = 0;
     int mergulhadores_salvos = 0;
     int oxigenio = 100;
@@ -136,58 +218,50 @@ void game() {
     int loop_count = 0;
 
     while (!game_over) {
-        clear();
+        limpa_buffer();
         desenhar_borda();
-        
-        // Interface de Status
-        mvprintw(0, 2, " Pontos: %d | Mergulhadores: %d | Oxigenio: %d%% ", pontuacao, mergulhadores_salvos, oxigenio);
-        // Linha da superfície da água
-        mvprintw(3, 1, "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
 
-        // Desenha o Jogador (Submarino)
-        mvprintw(submarino.y, submarino.x, "=0=");
+        char hud[128];
+        snprintf(hud, sizeof hud, " Pontos: %d | Mergulhadores: %d | Oxigenio: %d%% ",
+                 pontuacao, mergulhadores_salvos, oxigenio);
+        escreve(0, 2, hud);
 
-        // Movimenta e Desenha o Tubarão
+        escreve(3, 1, "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
+
+        escreve(submarino.y, submarino.x, "=0=");
+
         if (tubarao.ativo) {
-            mvprintw(tubarao.y, tubarao.x, "<><");
-            if (loop_count % 2 == 0) { // Controla a velocidade do tubarão
-                tubarao.x--;
-            }
+            escreve(tubarao.y, tubarao.x, "<><");
+            if (loop_count % 2 == 0) tubarao.x--;
             if (tubarao.x <= 1) {
                 tubarao.x = LARGURA - 4;
-                tubarao.y = (rand() % (ALTURA - 6)) + 4; // Spawna em altura aleatória abaixo da água
+                tubarao.y = (rand() % (ALTURA - 6)) + 4;
             }
         }
 
-        // Movimenta e Desenha o Mergulhador
         if (humano.ativo) {
-            mvprintw(humano.y, humano.x, "o");
-            if (loop_count % 3 == 0) {
-                humano.x--;
-            }
+            escreve_char(humano.y, humano.x, 'o');
+            if (loop_count % 3 == 0) humano.x--;
             if (humano.x <= 1) {
                 humano.x = LARGURA - 2;
                 humano.y = (rand() % (ALTURA - 6)) + 4;
             }
         }
 
-        // --- SISTEMA DE COLISÕES ---
-        
-        // Submarino pega mergulhador
-        if (humano.ativo && submarino.y == humano.y && (submarino.x <= humano.x && submarino.x + 2 >= humano.x)) {
+        /* colisoes */
+        if (humano.ativo && submarino.y == humano.y &&
+            (submarino.x <= humano.x && submarino.x + 2 >= humano.x)) {
             mergulhadores_salvos++;
             pontuacao += 100;
-            // Respawna o mergulhador
             humano.x = LARGURA - 2;
             humano.y = (rand() % (ALTURA - 6)) + 4;
         }
 
-        // Submarino bate no tubarão (Game Over)
-        if (tubarao.ativo && submarino.y == tubarao.y && (submarino.x + 2 >= tubarao.x && submarino.x <= tubarao.x + 2)) {
+        if (tubarao.ativo && submarino.y == tubarao.y &&
+            (submarino.x + 2 >= tubarao.x && submarino.x <= tubarao.x + 2)) {
             game_over = 1;
         }
 
-        // Submarino volta à superfície
         if (submarino.y <= 3) {
             if (mergulhadores_salvos > 0) {
                 pontuacao += mergulhadores_salvos * 200;
@@ -195,69 +269,41 @@ void game() {
             }
             if (oxigenio < 100) oxigenio += 5;
         } else {
-            // Consumo de oxigênio abaixo da água
             if (loop_count % 10 == 0) oxigenio--;
         }
 
         if (oxigenio <= 0) game_over = 1;
 
-        // Existi um problema aqui
-        // a função 'usleep' não funciona nativamente
-        refresh();
-        // usleep
-        // a função sleep() no ncurses funciona diferente do que no windows.h
-        // o certo é usar o napms()
-        napms(50); // Ritmo do jogo (50ms)
+        mostra_buffer();
+        dormir(DELAY_MS);
         loop_count++;
 
-        // --- CONTROLES ---
-        int ch = getch();
-        switch (ch) {
-            case KEY_UP:
-                if (submarino.y > 1) submarino.y--;
-                break;
-            case KEY_DOWN:
-                if (submarino.y < ALTURA - 1) submarino.y++;
-                break;
-            case KEY_LEFT:
-                if (submarino.x > 1) submarino.x--;
-                break;
-            case KEY_RIGHT:
-                if (submarino.x < LARGURA - 4) submarino.x++;
-                break;
-            case 'q': // Atalho para sair voluntariamente
-                game_over = 1;
-                break;
+        int ch;
+        while ((ch = ler_tecla()) != -1) {
+            if (ch == TECLA_CIMA    && submarino.y > 1)             submarino.y--;
+            if (ch == TECLA_BAIXO   && submarino.y < ALTURA - 1)    submarino.y++;
+            if (ch == TECLA_ESQUERDA && submarino.x > 1)            submarino.x--;
+            if (ch == TECLA_DIREITA && submarino.x < LARGURA - 4)   submarino.x++;
+            if (ch == 'q' || ch == 'Q') game_over = 1;
         }
     }
 
-    // Tela de Game Over temporária antes de voltar ao menu
-    nodelay(stdscr, FALSE);
-    clear();
+    limpa_buffer();
     desenhar_borda();
-    mvprintw(ALTURA / 2 - 1, (LARGURA / 2) - 5, "GAME OVER");
-    mvprintw(ALTURA / 2 + 1, (LARGURA / 2) - 9, "Pontuacao Final: %d", pontuacao);
-    mvprintw(ALTURA / 2 + 3, (LARGURA / 2) - 14, "Pressione qualquer tecla");
-    refresh();
-    getch();
+    escreve(ALTURA / 2 - 1, (LARGURA / 2) - 5, "GAME OVER");
+    char placar[64];
+    snprintf(placar, sizeof placar, "Pontuacao Final: %d", pontuacao);
+    escreve(ALTURA / 2 + 1, (LARGURA / 2) - 9, placar);
+    escreve(ALTURA / 2 + 3, (LARGURA / 2) - 14, "Pressione qualquer tecla");
+    mostra_buffer();
+
+    int c;
+    while ((c = ler_tecla()) == -1) dormir(20);
 }
 
-// Função principal main
-int main(){
-	// Iniciar a tela
-	initscr();
-	// 
-	cbreak();
-	// Não imprime as teclas digitadas pelo usuário
-	noecho();
-	// Ativa as teclas
-	keypad(stdscr, TRUE);
-	curs_set(0); // Esconde o cursor do terminal
-	srand(time(NULL));
-
-	menu();
-	// Finalização
-	endwin();
-
-	return 0;
-} // fim da função principal
+int main(void) {
+    srand((unsigned) time(NULL));
+    preparar_terminal();
+    menu();
+    return 0;
+}
