@@ -366,9 +366,12 @@ void game() {
                     game_over = 1;
                     break;
             }
-        }
+        } // fim do while que le o teclado
+
+    }
 
     // Tela de Game Over temporária antes de voltar ao menu
+    // (agora roda so 1 vez, fora do loop do jogo, depois que game_over vira 1)
     nodelay(stdscr, FALSE);
     clear();
     desenhar_borda();
@@ -382,6 +385,7 @@ void game() {
     mvprintw(ALTURA / 2 + 3, (LARGURA / 2) - 14, "Pressione qualquer tecla");
     refresh();
     getch();
+
 }
 
 // Função principal main
