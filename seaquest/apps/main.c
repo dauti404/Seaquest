@@ -347,25 +347,26 @@ void game() {
         loop_count++;
 
         // Controles
-        int ch = getch();
-        switch (ch) {
-            case KEY_UP:
-                if (submarino.y > 1) submarino.y--;
-                break;
-            case KEY_DOWN:
-                if (submarino.y < ALTURA - 1) submarino.y++;
-                break;
-            case KEY_LEFT:
-                if (submarino.x > 1) submarino.x--;
-                break;
-            case KEY_RIGHT:
-                if (submarino.x < LARGURA - 4) submarino.x++;
-                break;
-            case 'q': // Tecla para sair 
-                game_over = 1;
-                break;
+        int ch;
+        while ((ch = getch()) != ERR) { //ERR é o valor que o getchar retorna quando nao há mais nada precionado, entao o while so funciona caso o botao seja precionado
+            switch (ch) {
+                case KEY_UP:
+                    if (submarino.y > 1) submarino.y--;
+                    break;
+                case KEY_DOWN:
+                    if (submarino.y < ALTURA - 1) submarino.y++;
+                    break;
+                case KEY_LEFT:
+                    if (submarino.x > 1) submarino.x--;
+                    break;
+                case KEY_RIGHT:
+                    if (submarino.x < LARGURA - 4) submarino.x++;
+                    break;
+                case 'q':
+                    game_over = 1;
+                    break;
+            }
         }
-    }
 
     // Tela de Game Over temporária antes de voltar ao menu
     nodelay(stdscr, FALSE);
@@ -386,6 +387,7 @@ void game() {
 // Função principal main
 int main(){
 	initscr(); // Iniciar a tela
+    resize_term(ALTURA + 2, LARGURA + 2);  // garante que a janela seja grande o suficiente
 	cbreak(); // ativa o modo (quebra de linha)
 	noecho(); // Não imprime as teclas digitadas pelo usuário
 	keypad(stdscr, TRUE); // Ativa as teclas
